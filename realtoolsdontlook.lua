@@ -12,7 +12,7 @@ Hold.RequiresHandle = false
 Hold.CanBeDropped = false
 Hold.Parent = player.Backpack
 
-local blockedAnims = { ["11075367458"] = true }
+local blockedAnims = { ["11075367458"] = true , ["2788289281"] = true ,}
 
 local function setupAnimationBlock()
 	local char = player.Character or player.CharacterAdded:Wait()
