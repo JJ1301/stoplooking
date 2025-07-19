@@ -830,7 +830,8 @@ dashpunch.Activated:Connect(function()
     else
         return
     end
-    task.wait(2)
+
+    task.wait(1.8)
 
     if closestPlayer.Character and closestPlayer.Character:FindFirstChild("HumanoidRootPart") then
         local targetHRP = closestPlayer.Character.HumanoidRootPart
