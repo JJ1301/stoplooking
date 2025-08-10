@@ -40,24 +40,23 @@ local UIS = game:GetService("UserInputService")
 local Players = game:GetService("Players")
 local TeleportService = game:GetService("TeleportService")
 local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local mouse = player:GetMouse()
 
 --// Helper Functions
 
 local toggleHitboxExpander = false
-local selectionBoxes = {} -- Speichert die SelectionBoxen pro Entity
-local originalSizes = {} -- Speichert die ursprünglichen Größen
+local selectionBoxes = {}
+local originalSizes = {}
 
 local function setHitbox(characterOrModel, enabled)
-    local hrp = characterOrModel:FindFirstChild("HumanoidRootPart")
-    if not hrp then 
-        -- Versuche andere Namen für HumanoidRootPart
-        hrp = characterOrModel:FindFirstChild("Torso") or characterOrModel:FindFirstChild("UpperTorso")
-        if not hrp then return end
-    end
+    local hrp = characterOrModel:FindFirstChild("HumanoidRootPart") or 
+               characterOrModel:FindFirstChild("Torso") or 
+               characterOrModel:FindFirstChild("UpperTorso")
+    
+    if not hrp then return end
 
     if enabled then
-        -- Ursprüngliche Größe speichern wenn noch nicht gespeichert
         if not originalSizes[characterOrModel] then
             originalSizes[characterOrModel] = {
                 Size = hrp.Size,
@@ -67,24 +66,21 @@ local function setHitbox(characterOrModel, enabled)
             }
         end
 
-        -- Hitboxgröße setzen - auch wenn SelectionBox bereits existiert
         hrp.Size = Vector3.new(15, 15, 15)
         hrp.Transparency = 0.5
         hrp.Material = Enum.Material.Neon
         hrp.CanCollide = false
 
-        -- SelectionBox hinzufügen nur wenn noch nicht vorhanden
         if not selectionBoxes[characterOrModel] then
             local box = Instance.new("SelectionBox")
             box.Adornee = hrp
-            box.Color3 = Color3.fromRGB(255, 105, 180) -- Pink
+            box.Color3 = Color3.fromRGB(255, 105, 180)
             box.LineThickness = 0.05
             box.Name = "Hitbox_Highlight"
             box.Parent = hrp
             selectionBoxes[characterOrModel] = box
         end
     else
-        -- Zurücksetzen zur ursprünglichen Größe
         if originalSizes[characterOrModel] then
             local original = originalSizes[characterOrModel]
             hrp.Size = original.Size
@@ -93,14 +89,12 @@ local function setHitbox(characterOrModel, enabled)
             hrp.CanCollide = original.CanCollide
             originalSizes[characterOrModel] = nil
         else
-            -- Fallback Werte
             hrp.Size = Vector3.new(2, 2, 1)
             hrp.Transparency = 1
             hrp.Material = Enum.Material.Plastic
             hrp.CanCollide = false
         end
 
-        -- SelectionBox entfernen
         if selectionBoxes[characterOrModel] then
             selectionBoxes[characterOrModel]:Destroy()
             selectionBoxes[characterOrModel] = nil
@@ -108,191 +102,158 @@ local function setHitbox(characterOrModel, enabled)
     end
 end
 
-local function updateHitboxes(enabled)
-    if not toggleHitboxExpander then return end
+local function isEnemy(target)
+    if not target then return false end
     
     local myTeam = player.Team
-
-    -- Spieler - nur Gegner, nicht eigenes Team
+    local myCharacter = player.Character
+    
+    -- Check if target is a player
+    local targetPlayer = nil
     for _, plr in pairs(Players:GetPlayers()) do
-        if plr ~= player and plr.Character then
-            -- Nur wenn Spieler nicht im selben Team ist
-            if plr.Team ~= myTeam then
-                setHitbox(plr.Character, enabled)
-            end
+        if plr.Character == target then
+            targetPlayer = plr
+            break
         end
     end
-
-    -- Mobs - haben normalerweise kein Team, also immer aktivieren
-    local mobsFolder = workspace:FindFirstChild("Mobs")
-    if mobsFolder then
-        for _, mob in pairs(mobsFolder:GetChildren()) do
-            if mob:IsA("Model") and mob:FindFirstChild("HumanoidRootPart") then
-                setHitbox(mob, enabled)
+    
+    if targetPlayer then
+        -- It's a player - check teams
+        if targetPlayer == player then return false end
+        
+        -- If both have teams, compare them
+        if myTeam and targetPlayer.Team then
+            return myTeam ~= targetPlayer.Team
+        end
+        
+        -- If using Team attributes
+        if myCharacter and target then
+            local myTeamAttr = myCharacter:GetAttribute("Team")
+            local targetTeamAttr = target:GetAttribute("Team")
+            if myTeamAttr and targetTeamAttr then
+                return myTeamAttr ~= targetTeamAttr
             end
         end
+        
+        -- Default: treat as enemy if no clear team info
+        return true
+    else
+        -- It's an NPC/Mob - check team attributes
+        if myCharacter and target then
+            local myTeamAttr = myCharacter:GetAttribute("Team")
+            local targetTeamAttr = target:GetAttribute("Team")
+            if myTeamAttr and targetTeamAttr then
+                return myTeamAttr ~= targetTeamAttr
+            end
+        end
+        
+        -- Default: treat NPCs as enemies
+        return true
     end
 end
 
--- Funktion zum Ein-/Ausschalten der Hitbox-Erweiterung
-local function toggleHitboxFunction()
-    toggleHitboxExpander = not toggleHitboxExpander
-    
-    if toggleHitboxExpander then
-        updateHitboxes(true)
-    else
-        -- Alle Hitboxen zurücksetzen
+local function updateHitboxes()
+    if not toggleHitboxExpander then
+        -- Reset all hitboxes
         for characterOrModel, _ in pairs(selectionBoxes) do
             setHitbox(characterOrModel, false)
         end
+        return
+    end
+    
+    -- Players
+    for _, plr in pairs(Players:GetPlayers()) do
+        if plr.Character and isEnemy(plr.Character) then
+            setHitbox(plr.Character, true)
+        end
+    end
+
+    -- Mobs
+    local mobsFolder = workspace:FindFirstChild("Mobs")
+    if mobsFolder then
+        for _, mob in pairs(mobsFolder:GetChildren()) do
+            if mob:IsA("Model") and mob:FindFirstChild("Humanoid") and isEnemy(mob) then
+                setHitbox(mob, true)
+            end
+        end
+    end
+
+    -- Other potential enemies in workspace
+    for _, obj in pairs(workspace:GetChildren()) do
+        if obj:IsA("Model") and obj ~= player.Character then
+            local humanoid = obj:FindFirstChild("Humanoid")
+            local hrp = obj:FindFirstChild("HumanoidRootPart") or 
+                       obj:FindFirstChild("Torso") or 
+                       obj:FindFirstChild("UpperTorso")
+            
+            if humanoid and hrp and isEnemy(obj) then
+                -- Make sure it's not a player character (already handled above)
+                local isPlayerChar = false
+                for _, plr in pairs(Players:GetPlayers()) do
+                    if plr.Character == obj then
+                        isPlayerChar = true
+                        break
+                    end
+                end
+                
+                if not isPlayerChar then
+                    setHitbox(obj, true)
+                end
+            end
+        end
     end
 end
 
--- Auto-Add für neue Spieler mit besserer Team-Erkennung
+-- Auto-update for new players
 Players.PlayerAdded:Connect(function(plr)
     plr.CharacterAdded:Connect(function(char)
-        wait(2) -- Länger warten für vollständiges Laden
-        if toggleHitboxExpander and plr ~= player then
-            local myTeam = player.Team
-            -- Strikte Team-Überprüfung
-            if myTeam and plr.Team and plr.Team ~= myTeam then
-                setHitbox(char, true)
-            elseif not myTeam and not plr.Team then
-                setHitbox(char, true)
-            elseif myTeam and not plr.Team then
-                setHitbox(char, true)
-            elseif not myTeam and plr.Team then
-                setHitbox(char, true)
-            end
+        wait(1)
+        if toggleHitboxExpander and isEnemy(char) then
+            setHitbox(char, true)
         end
     end)
 end)
 
--- Auto-Add für bereits vorhandene Spieler
+-- Auto-update for existing players
 for _, plr in pairs(Players:GetPlayers()) do
     if plr ~= player then
-        if plr.Character then
-            -- Sofort verfügbaren Character behandeln
-            if toggleHitboxExpander then
-                local myTeam = player.Team
-                if myTeam and plr.Team and plr.Team ~= myTeam then
-                    setHitbox(plr.Character, true)
-                elseif not myTeam and not plr.Team then
-                    setHitbox(plr.Character, true)
-                elseif myTeam and not plr.Team then
-                    setHitbox(plr.Character, true)
-                elseif not myTeam and plr.Team then
-                    setHitbox(plr.Character, true)
-                end
-            end
-        end
-        
         plr.CharacterAdded:Connect(function(char)
-            wait(2)
-            if toggleHitboxExpander then
-                local myTeam = player.Team
-                if myTeam and plr.Team and plr.Team ~= myTeam then
-                    setHitbox(char, true)
-                elseif not myTeam and not plr.Team then
-                    setHitbox(char, true)
-                elseif myTeam and not plr.Team then
-                    setHitbox(char, true)
-                elseif not myTeam and plr.Team then
-                    setHitbox(char, true)
-                end
+            wait(1)
+            if toggleHitboxExpander and isEnemy(char) then
+                setHitbox(char, true)
             end
         end)
     end
 end
 
--- Auto-Add für neue Mobs
+-- Auto-update for new mobs
 local function setupMobsListener()
     local mobsFolder = workspace:FindFirstChild("Mobs")
     if mobsFolder then
         mobsFolder.ChildAdded:Connect(function(mob)
-            wait(0.5) -- Kurz warten bis Mob vollständig geladen
-            if toggleHitboxExpander and mob:IsA("Model") and mob:FindFirstChild("HumanoidRootPart") then
+            wait(0.5)
+            if toggleHitboxExpander and mob:IsA("Model") and mob:FindFirstChild("Humanoid") and isEnemy(mob) then
                 setHitbox(mob, true)
             end
         end)
     end
 end
 
--- Mobs-Listener einrichten
 setupMobsListener()
 
--- Falls Mobs-Ordner erst später erstellt wird
 workspace.ChildAdded:Connect(function(child)
     if child.Name == "Mobs" then
         setupMobsListener()
     end
 end)
 
--- Cleanup wenn Charaktere/Mobs entfernt werden
+-- Cleanup
 workspace.ChildRemoved:Connect(function(child)
     if selectionBoxes[child] then
         selectionBoxes[child] = nil
         originalSizes[child] = nil
     end
 end)
-
-function updateHitboxes()
-    if toggleHitboxExpander then
-        -- Alle Spieler außer dir selbst
-        for _, plr in pairs(Players:GetPlayers()) do
-            if plr ~= player and plr.Character then
-                setHitbox(plr.Character, true)
-            end
-        end
-
-        -- Mobs
-        local mobsFolder = workspace:FindFirstChild("Mobs")
-        if mobsFolder then
-            for _, mob in pairs(mobsFolder:GetChildren()) do
-                if mob:IsA("Model") then
-                    setHitbox(mob, true)
-                end
-            end
-        end
-
-        -- Andere mögliche Gegner-Ordner
-        local enemiesFolder = workspace:FindFirstChild("Enemies") or workspace:FindFirstChild("NPCs")
-        if enemiesFolder then
-            for _, enemy in pairs(enemiesFolder:GetChildren()) do
-                if enemy:IsA("Model") then
-                    setHitbox(enemy, true)
-                end
-            end
-        end
-
-        -- Alle Models im Workspace, die keine Spieler sind, aber Humanoid haben
-        for _, obj in pairs(workspace:GetChildren()) do
-            if obj:IsA("Model") and obj ~= player.Character then
-                local humanoid = obj:FindFirstChild("Humanoid")
-                local hrp = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChild("Torso") or obj:FindFirstChild("UpperTorso")
-                
-                if humanoid and hrp then
-                    local isPlayer = false
-                    for _, plr in pairs(Players:GetPlayers()) do
-                        if plr.Character == obj then
-                            isPlayer = true
-                            break
-                        end
-                    end
-                    
-                    if not isPlayer then
-                        setHitbox(obj, true)
-                    end
-                end
-            end
-        end
-    else
-        -- Zurücksetzen
-        for characterOrModel, _ in pairs(selectionBoxes) do
-            setHitbox(characterOrModel, false)
-        end
-    end
-end
 
 -- ScreenGui
 local screenGui = Instance.new("ScreenGui")
@@ -351,7 +312,6 @@ local function smoothDrag(frame)
     end)
 end
 
--- Smooth Drag
 smoothDrag(mainFrame)
 
 -- Version Label
@@ -421,7 +381,6 @@ local settingsTab = createTab("Settings")
 
 local buttonYOffset = 10
 local function createTabButton(name, targetTab, iconPath)
-    -- Container
     local container = Instance.new("Frame")
     container.Size = UDim2.new(1, -20, 0, 40)
     container.Position = UDim2.new(0, 10, 0, buttonYOffset)
@@ -429,7 +388,6 @@ local function createTabButton(name, targetTab, iconPath)
     container.Parent = tabFrame
     Instance.new("UICorner", container).CornerRadius = UDim.new(0, 6)
 
-    -- Icon
     local icon = Instance.new("ImageLabel")
     icon.Size = UDim2.new(0, 28, 0, 28)
     icon.Position = UDim2.new(0, 6, 0.5, -14)
@@ -437,7 +395,6 @@ local function createTabButton(name, targetTab, iconPath)
     icon.Image = getcustomasset(iconPath)
     icon.Parent = container
 
-    -- Label für Text
     local label = Instance.new("TextLabel")
     label.Size = UDim2.new(1, -40, 1, 0)
     label.Position = UDim2.new(0, 40, 0, 0)
@@ -449,7 +406,6 @@ local function createTabButton(name, targetTab, iconPath)
     label.Text = name
     label.Parent = container
 
-    -- Unsichtbarer Button für Klicks
     local clickButton = Instance.new("TextButton")
     clickButton.Size = UDim2.new(1, 0, 1, 0)
     clickButton.BackgroundTransparency = 1
@@ -470,7 +426,7 @@ createTabButton("Main", "Main", eternal .. "\\code.png")
 createTabButton("Visuals", "Visuals", eternal .. "\\eye.png")
 createTabButton("Settings", "Settings", eternal .. "\\settings.png")
 
--- Game Name
+-- Game Info Labels
 local gameNameLabel = Instance.new("TextLabel")
 gameNameLabel.Size = UDim2.new(0, 300, 0, 20)
 gameNameLabel.Position = UDim2.new(0, 20, 0, 110)
@@ -484,7 +440,6 @@ gameNameLabel.Text = "Game: <font color='rgb(255,100,255)'>" ..
 gameNameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 gameNameLabel.Parent = settingsTab
 
--- Game ID
 local gameIdLabel = Instance.new("TextLabel")
 gameIdLabel.Size = UDim2.new(0, 300, 0, 20)
 gameIdLabel.Position = UDim2.new(0, 20, 0, 135)
@@ -497,7 +452,6 @@ gameIdLabel.Text = "Game ID: <font color='rgb(255,100,255)'>" .. game.PlaceId ..
 gameIdLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 gameIdLabel.Parent = settingsTab
 
--- Job ID
 local jobIdLabel = Instance.new("TextLabel")
 jobIdLabel.Size = UDim2.new(0, 300, 0, 20)
 jobIdLabel.Position = UDim2.new(0, 20, 0, 170)
@@ -510,7 +464,6 @@ jobIdLabel.Text = "Job ID: <font color='rgb(255,100,255)'>" .. game.JobId .. "</
 jobIdLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 jobIdLabel.Parent = settingsTab
 
--- Copy Job ID Button
 local copyJobIdButton = Instance.new("TextButton")
 copyJobIdButton.Size = UDim2.new(0, 150, 0, 30)
 copyJobIdButton.Position = UDim2.new(0, 20, 0, 200)
@@ -526,27 +479,29 @@ copyJobIdButton.MouseButton1Click:Connect(function()
     setclipboard(game.JobId)
 end)
 
--- Bring All Toggle
+-- Main Tab Buttons
+
+-- Fixed Bring All Toggle
 local bringAllToggle = Instance.new("TextButton")
-bringAllToggle.Size = UDim2.new(0, 150, 0, 40)
+bringAllToggle.Size = UDim2.new(0, 120, 0, 40)
 bringAllToggle.Position = UDim2.new(0, 20, 0, 20)
 bringAllToggle.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
 bringAllToggle.Text = "Bring All: OFF"
 bringAllToggle.Font = Enum.Font.FredokaOne
 bringAllToggle.TextColor3 = Color3.fromRGB(255, 100, 255)
-bringAllToggle.TextSize = 16
+bringAllToggle.TextSize = 14
 bringAllToggle.Parent = mainTab
 Instance.new("UICorner", bringAllToggle).CornerRadius = UDim.new(0, 6)
 
 local bringAllEnabled = false
 local bringAllConnection = nil
 
-local function notifyNoPlayers()
+local function notifyNoTargets()
     local hint = Instance.new("TextLabel")
     hint.Size = UDim2.new(0, 300, 0, 30)
     hint.Position = UDim2.new(0.5, -150, 0, 10)
     hint.BackgroundColor3 = Color3.fromRGB(60, 20, 20)
-    hint.Text = "No real players found!"
+    hint.Text = "No targets found!"
     hint.TextColor3 = Color3.fromRGB(255, 255, 255)
     hint.Font = Enum.Font.FredokaOne
     hint.TextSize = 14
@@ -554,8 +509,58 @@ local function notifyNoPlayers()
     Instance.new("UICorner", hint).CornerRadius = UDim.new(0, 6)
 
     task.delay(3, function()
-        if hint then hint:Destroy() end
+        if hint and hint.Parent then 
+            hint:Destroy() 
+        end
     end)
+end
+
+local function isValidTarget(target)
+    if not target or not target.Parent then
+        return false
+    end
+    
+    -- Skip if it's the local player
+    if target == player.Character then
+        return false
+    end
+    
+    -- Check if target has a humanoid (is alive)
+    local humanoid = target:FindFirstChild("Humanoid")
+    if not humanoid or humanoid.Health <= 0 then
+        return false
+    end
+    
+    -- Must have a head or humanoidrootpart to teleport
+    local head = target:FindFirstChild("Head")
+    local hrp = target:FindFirstChild("HumanoidRootPart")
+    if not head and not hrp then
+        return false
+    end
+    
+    -- Get local player's team
+    local localChar = player.Character
+    local localTeam = nil
+    
+    if localChar then
+        localTeam = localChar:GetAttribute("Team")
+    end
+    
+    -- If local player has no team attribute or team is -1, target everyone
+    if not localTeam or localTeam == -1 then
+        return true
+    end
+    
+    -- Check target's team
+    local targetTeam = target:GetAttribute("Team")
+    
+    -- If target has no team, consider it an enemy
+    if not targetTeam then
+        return true
+    end
+    
+    -- Target is enemy if teams are different
+    return localTeam ~= targetTeam
 end
 
 bringAllToggle.MouseButton1Click:Connect(function()
@@ -563,40 +568,72 @@ bringAllToggle.MouseButton1Click:Connect(function()
     bringAllToggle.Text = "Bring All: " .. (bringAllEnabled and "ON" or "OFF")
 
     if bringAllEnabled then
-        local camera = workspace.CurrentCamera
-        local bots = workspace:FindFirstChild("Mobs")
-
-        if not bots then
-            notifyNoPlayers()
-            bringAllToggle.Text = "Bring All: OFF"
-            bringAllEnabled = false
-            return
-        end
-
         bringAllConnection = RunService.RenderStepped:Connect(function()
+            local camera = workspace.CurrentCamera
+            if not camera then return end
+            
             local localPlayer = Players.LocalPlayer
             local character = localPlayer.Character
-
-            -- Mobs
-            for _, v in bots:GetChildren() do
-                if character and character:GetAttribute("Team") ~= -1 and v:GetAttribute("Team") == character:GetAttribute("Team") then
-                    continue
-                end
-                local head = v:FindFirstChild("Head")
-                if head then
-                    head.CFrame = camera.CFrame + camera.CFrame.lookVector * 7
+            if not character then return end
+            
+            -- Bring all mobs from workspace.Mobs
+            local mobsFolder = workspace:FindFirstChild("Mobs")
+            if mobsFolder then
+                for _, mob in pairs(mobsFolder:GetChildren()) do
+                    if mob:IsA("Model") and isValidTarget(mob) then
+                        local head = mob:FindFirstChild("Head")
+                        local hrp = mob:FindFirstChild("HumanoidRootPart")
+                        local targetPart = head or hrp
+                        
+                        if targetPart then
+                            pcall(function()
+                                targetPart.CFrame = camera.CFrame + camera.CFrame.lookVector * 7
+                            end)
+                        end
+                    end
                 end
             end
 
-            -- Players
-            for _, v in Players:GetPlayers() do
-                if v == localPlayer then continue end
-                if character and v.Character and character:GetAttribute("Team") ~= -1 and v.Character:GetAttribute("Team") == character:GetAttribute("Team") then
-                    continue
+            -- Bring all other players
+            for _, otherPlayer in pairs(Players:GetPlayers()) do
+                if otherPlayer ~= localPlayer and otherPlayer.Character then
+                    if isValidTarget(otherPlayer.Character) then
+                        local head = otherPlayer.Character:FindFirstChild("Head")
+                        local hrp = otherPlayer.Character:FindFirstChild("HumanoidRootPart")
+                        local targetPart = head or hrp
+                        
+                        if targetPart then
+                            pcall(function()
+                                targetPart.CFrame = camera.CFrame + camera.CFrame.lookVector * 7
+                            end)
+                        end
+                    end
                 end
-                local head = v.Character and v.Character:FindFirstChild("Head")
-                if head then
-                    head.CFrame = camera.CFrame + camera.CFrame.lookVector * 7
+            end
+            
+            -- Bring other NPCs/models in workspace (not in Mobs folder and not player characters)
+            for _, obj in pairs(workspace:GetChildren()) do
+                if obj:IsA("Model") and obj ~= character and obj.Name ~= "Mobs" then
+                    -- Skip if it's a player character
+                    local isPlayerChar = false
+                    for _, plr in pairs(Players:GetPlayers()) do
+                        if plr.Character == obj then
+                            isPlayerChar = true
+                            break
+                        end
+                    end
+                    
+                    if not isPlayerChar and isValidTarget(obj) then
+                        local head = obj:FindFirstChild("Head")
+                        local hrp = obj:FindFirstChild("HumanoidRootPart")
+                        local targetPart = head or hrp
+                        
+                        if targetPart then
+                            pcall(function()
+                                targetPart.CFrame = camera.CFrame + camera.CFrame.lookVector * 7
+                            end)
+                        end
+                    end
                 end
             end
         end)
@@ -608,15 +645,75 @@ bringAllToggle.MouseButton1Click:Connect(function()
     end
 end)
 
+-- Destroy Teams Barrier Toggle
+local destroyBarrierToggle = Instance.new("TextButton")
+destroyBarrierToggle.Size = UDim2.new(0, 150, 0, 40)
+destroyBarrierToggle.Position = UDim2.new(0, 20, 0, 70)
+destroyBarrierToggle.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+destroyBarrierToggle.Text = "Destroy Barrier: OFF"
+destroyBarrierToggle.Font = Enum.Font.FredokaOne
+destroyBarrierToggle.TextColor3 = Color3.fromRGB(255, 100, 255)
+destroyBarrierToggle.TextSize = 14
+destroyBarrierToggle.Parent = mainTab
+Instance.new("UICorner", destroyBarrierToggle).CornerRadius = UDim.new(0, 6)
+
+local destroyBarrierEnabled = false
+local destroyBarrierConnection = nil
+
+destroyBarrierToggle.MouseButton1Click:Connect(function()
+    destroyBarrierEnabled = not destroyBarrierEnabled
+    destroyBarrierToggle.Text = "Destroy Barrier: " .. (destroyBarrierEnabled and "ON" or "OFF")
+    
+    if destroyBarrierEnabled then
+        destroyBarrierConnection = RunService.Heartbeat:Connect(function()
+            local character = player.Character
+            if not character then return end
+            
+            local myTeam = character:GetAttribute("Team")
+            if not myTeam then return end
+            
+            local mapFolder = workspace:FindFirstChild("Map")
+            if not mapFolder then return end
+            
+            local forcefieldsFolder = mapFolder:FindFirstChild("Forcefields")
+            if not forcefieldsFolder then return end
+            
+            -- Determine which team barriers to destroy based on player's team
+            local targetName = ""
+            if myTeam == 1 then
+                targetName = "Team2"
+            elseif myTeam == 2 then
+                targetName = "Team1"
+            else
+                return -- Unknown team, don't destroy anything
+            end
+            
+            -- Find and destroy enemy team barriers
+            for _, part in pairs(forcefieldsFolder:GetChildren()) do
+                if part:IsA("BasePart") and part.Name == targetName then
+                    pcall(function()
+                        part:Destroy()
+                    end)
+                end
+            end
+        end)
+    else
+        if destroyBarrierConnection then
+            destroyBarrierConnection:Disconnect()
+            destroyBarrierConnection = nil
+        end
+    end
+end)
+
 -- Hitbox Expander Toggle
 local hitboxToggle = Instance.new("TextButton")
-hitboxToggle.Size = UDim2.new(0, 150, 0, 40)
-hitboxToggle.Position = UDim2.new(0, 180, 0, 20)
+hitboxToggle.Size = UDim2.new(0, 120, 0, 40)
+hitboxToggle.Position = UDim2.new(0, 180, 0, 70)
 hitboxToggle.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
 hitboxToggle.Text = "Hitbox: OFF"
 hitboxToggle.Font = Enum.Font.FredokaOne
 hitboxToggle.TextColor3 = Color3.fromRGB(255, 100, 255)
-hitboxToggle.TextSize = 16
+hitboxToggle.TextSize = 14
 hitboxToggle.Parent = mainTab
 Instance.new("UICorner", hitboxToggle).CornerRadius = UDim.new(0, 6)
 
@@ -626,26 +723,59 @@ hitboxToggle.MouseButton1Click:Connect(function()
     updateHitboxes()
 end)
 
+-- Auto Spawn Toggle
+local autoSpawnToggle = Instance.new("TextButton")
+autoSpawnToggle.Size = UDim2.new(0, 120, 0, 40)
+autoSpawnToggle.Position = UDim2.new(0, 310, 0, 70)
+autoSpawnToggle.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+autoSpawnToggle.Text = "Auto Spawn: OFF"
+autoSpawnToggle.Font = Enum.Font.FredokaOne
+autoSpawnToggle.TextColor3 = Color3.fromRGB(255, 100, 255)
+autoSpawnToggle.TextSize = 14
+autoSpawnToggle.Parent = mainTab
+Instance.new("UICorner", autoSpawnToggle).CornerRadius = UDim.new(0, 6)
+
+local autoSpawnEnabled = false
+local autoSpawnConnection = nil
+
+autoSpawnToggle.MouseButton1Click:Connect(function()
+    autoSpawnEnabled = not autoSpawnEnabled
+    autoSpawnToggle.Text = "Auto Spawn: " .. (autoSpawnEnabled and "ON" or "OFF")
+    
+    if autoSpawnEnabled then
+        autoSpawnConnection = RunService.Heartbeat:Connect(function()
+            pcall(function()
+                game:GetService("ReplicatedStorage").Network.Remotes.Spawn:FireServer(false)
+            end)
+        end)
+    else
+        if autoSpawnConnection then
+            autoSpawnConnection:Disconnect()
+            autoSpawnConnection = nil
+        end
+    end
+end)
+
 -- Reset Button
 local resetButton = Instance.new("TextButton")
-resetButton.Size = UDim2.new(0, 150, 0, 40)
-resetButton.Position = UDim2.new(0, 340, 0, 20)
+resetButton.Size = UDim2.new(0, 120, 0, 40)
+resetButton.Position = UDim2.new(0, 440, 0, 70)
 resetButton.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
 resetButton.Text = "Reset"
 resetButton.Font = Enum.Font.FredokaOne
 resetButton.TextColor3 = Color3.fromRGB(255, 100, 255)
-resetButton.TextSize = 16
+resetButton.TextSize = 14
 resetButton.Parent = mainTab
 Instance.new("UICorner", resetButton).CornerRadius = UDim.new(0, 6)
 
 resetButton.MouseButton1Click:Connect(function()
-	local char = player.Character
-	if char then
-		local humanoid = char:FindFirstChildOfClass("Humanoid")
-		if humanoid then
-			humanoid.Health = 0
-		end
-	end
+    local char = player.Character
+    if char then
+        local humanoid = char:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            humanoid.Health = 0
+        end
+    end
 end)
 
 -- Companion Toggle
