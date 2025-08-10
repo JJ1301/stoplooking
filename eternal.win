@@ -1,0 +1,759 @@
+--// Eternal.win Folder & Assets
+
+local eternal = "eternal.win"
+makefolder(eternal)
+
+local player = game.Players.LocalPlayer
+local username = player.Name
+local displayname = player.DisplayName
+local userid = player.UserId
+local accountage = player.AccountAge
+local executor = identifyexecutor and identifyexecutor() or "N/A"
+
+local placeName = game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId).Name
+local placeId = game.PlaceId
+
+local content = "Username: " .. username ..
+                "\nDisplayname: " .. displayname ..
+                "\nUserId: " .. userid ..
+                "\nAccount Age: " .. accountage .. " days" ..
+                "\n\nPlace Name: " .. placeName ..
+                "\nPlace ID: " .. placeId ..
+                "\n\nExecutor: " .. executor
+
+writefile(eternal .. "\\Info.txt", content)
+
+-- Download icons
+writefile(eternal .. "\\code.png", game:HttpGet("https://raw.githubusercontent.com/JJ1301/stoplooking/main/code.png"))
+writefile(eternal .. "\\eye.png", game:HttpGet("https://raw.githubusercontent.com/JJ1301/stoplooking/main/eye.png"))
+writefile(eternal .. "\\settings.png", game:HttpGet("https://raw.githubusercontent.com/JJ1301/stoplooking/main/settings.png"))
+
+-- Preload custom assets
+local codeIcon = getcustomasset(eternal .. "\\code.png")
+local eyeIcon = getcustomasset(eternal .. "\\eye.png")
+local settingsIcon = getcustomasset(eternal .. "\\settings.png")
+
+--// Eternal.win Main Script
+
+-- Services
+local UIS = game:GetService("UserInputService")
+local Players = game:GetService("Players")
+local TeleportService = game:GetService("TeleportService")
+local RunService = game:GetService("RunService")
+local mouse = player:GetMouse()
+
+--// Helper Functions
+
+local toggleHitboxExpander = false
+local selectionBoxes = {} -- Speichert die SelectionBoxen pro Entity
+local originalSizes = {} -- Speichert die ursprünglichen Größen
+
+local function setHitbox(characterOrModel, enabled)
+    local hrp = characterOrModel:FindFirstChild("HumanoidRootPart")
+    if not hrp then 
+        -- Versuche andere Namen für HumanoidRootPart
+        hrp = characterOrModel:FindFirstChild("Torso") or characterOrModel:FindFirstChild("UpperTorso")
+        if not hrp then return end
+    end
+
+    if enabled then
+        -- Ursprüngliche Größe speichern wenn noch nicht gespeichert
+        if not originalSizes[characterOrModel] then
+            originalSizes[characterOrModel] = {
+                Size = hrp.Size,
+                Transparency = hrp.Transparency,
+                Material = hrp.Material,
+                CanCollide = hrp.CanCollide
+            }
+        end
+
+        -- Hitboxgröße setzen - auch wenn SelectionBox bereits existiert
+        hrp.Size = Vector3.new(15, 15, 15)
+        hrp.Transparency = 0.5
+        hrp.Material = Enum.Material.Neon
+        hrp.CanCollide = false
+
+        -- SelectionBox hinzufügen nur wenn noch nicht vorhanden
+        if not selectionBoxes[characterOrModel] then
+            local box = Instance.new("SelectionBox")
+            box.Adornee = hrp
+            box.Color3 = Color3.fromRGB(255, 105, 180) -- Pink
+            box.LineThickness = 0.05
+            box.Name = "Hitbox_Highlight"
+            box.Parent = hrp
+            selectionBoxes[characterOrModel] = box
+        end
+    else
+        -- Zurücksetzen zur ursprünglichen Größe
+        if originalSizes[characterOrModel] then
+            local original = originalSizes[characterOrModel]
+            hrp.Size = original.Size
+            hrp.Transparency = original.Transparency
+            hrp.Material = original.Material
+            hrp.CanCollide = original.CanCollide
+            originalSizes[characterOrModel] = nil
+        else
+            -- Fallback Werte
+            hrp.Size = Vector3.new(2, 2, 1)
+            hrp.Transparency = 1
+            hrp.Material = Enum.Material.Plastic
+            hrp.CanCollide = false
+        end
+
+        -- SelectionBox entfernen
+        if selectionBoxes[characterOrModel] then
+            selectionBoxes[characterOrModel]:Destroy()
+            selectionBoxes[characterOrModel] = nil
+        end
+    end
+end
+
+local function updateHitboxes(enabled)
+    if not toggleHitboxExpander then return end
+    
+    local myTeam = player.Team
+
+    -- Spieler - nur Gegner, nicht eigenes Team
+    for _, plr in pairs(Players:GetPlayers()) do
+        if plr ~= player and plr.Character then
+            -- Nur wenn Spieler nicht im selben Team ist
+            if plr.Team ~= myTeam then
+                setHitbox(plr.Character, enabled)
+            end
+        end
+    end
+
+    -- Mobs - haben normalerweise kein Team, also immer aktivieren
+    local mobsFolder = workspace:FindFirstChild("Mobs")
+    if mobsFolder then
+        for _, mob in pairs(mobsFolder:GetChildren()) do
+            if mob:IsA("Model") and mob:FindFirstChild("HumanoidRootPart") then
+                setHitbox(mob, enabled)
+            end
+        end
+    end
+end
+
+-- Funktion zum Ein-/Ausschalten der Hitbox-Erweiterung
+local function toggleHitboxFunction()
+    toggleHitboxExpander = not toggleHitboxExpander
+    
+    if toggleHitboxExpander then
+        updateHitboxes(true)
+    else
+        -- Alle Hitboxen zurücksetzen
+        for characterOrModel, _ in pairs(selectionBoxes) do
+            setHitbox(characterOrModel, false)
+        end
+    end
+end
+
+-- Auto-Add für neue Spieler mit besserer Team-Erkennung
+Players.PlayerAdded:Connect(function(plr)
+    plr.CharacterAdded:Connect(function(char)
+        wait(2) -- Länger warten für vollständiges Laden
+        if toggleHitboxExpander and plr ~= player then
+            local myTeam = player.Team
+            -- Strikte Team-Überprüfung
+            if myTeam and plr.Team and plr.Team ~= myTeam then
+                setHitbox(char, true)
+            elseif not myTeam and not plr.Team then
+                setHitbox(char, true)
+            elseif myTeam and not plr.Team then
+                setHitbox(char, true)
+            elseif not myTeam and plr.Team then
+                setHitbox(char, true)
+            end
+        end
+    end)
+end)
+
+-- Auto-Add für bereits vorhandene Spieler
+for _, plr in pairs(Players:GetPlayers()) do
+    if plr ~= player then
+        if plr.Character then
+            -- Sofort verfügbaren Character behandeln
+            if toggleHitboxExpander then
+                local myTeam = player.Team
+                if myTeam and plr.Team and plr.Team ~= myTeam then
+                    setHitbox(plr.Character, true)
+                elseif not myTeam and not plr.Team then
+                    setHitbox(plr.Character, true)
+                elseif myTeam and not plr.Team then
+                    setHitbox(plr.Character, true)
+                elseif not myTeam and plr.Team then
+                    setHitbox(plr.Character, true)
+                end
+            end
+        end
+        
+        plr.CharacterAdded:Connect(function(char)
+            wait(2)
+            if toggleHitboxExpander then
+                local myTeam = player.Team
+                if myTeam and plr.Team and plr.Team ~= myTeam then
+                    setHitbox(char, true)
+                elseif not myTeam and not plr.Team then
+                    setHitbox(char, true)
+                elseif myTeam and not plr.Team then
+                    setHitbox(char, true)
+                elseif not myTeam and plr.Team then
+                    setHitbox(char, true)
+                end
+            end
+        end)
+    end
+end
+
+-- Auto-Add für neue Mobs
+local function setupMobsListener()
+    local mobsFolder = workspace:FindFirstChild("Mobs")
+    if mobsFolder then
+        mobsFolder.ChildAdded:Connect(function(mob)
+            wait(0.5) -- Kurz warten bis Mob vollständig geladen
+            if toggleHitboxExpander and mob:IsA("Model") and mob:FindFirstChild("HumanoidRootPart") then
+                setHitbox(mob, true)
+            end
+        end)
+    end
+end
+
+-- Mobs-Listener einrichten
+setupMobsListener()
+
+-- Falls Mobs-Ordner erst später erstellt wird
+workspace.ChildAdded:Connect(function(child)
+    if child.Name == "Mobs" then
+        setupMobsListener()
+    end
+end)
+
+-- Cleanup wenn Charaktere/Mobs entfernt werden
+workspace.ChildRemoved:Connect(function(child)
+    if selectionBoxes[child] then
+        selectionBoxes[child] = nil
+        originalSizes[child] = nil
+    end
+end)
+
+function updateHitboxes()
+    if toggleHitboxExpander then
+        -- Alle Spieler außer dir selbst
+        for _, plr in pairs(Players:GetPlayers()) do
+            if plr ~= player and plr.Character then
+                setHitbox(plr.Character, true)
+            end
+        end
+
+        -- Mobs
+        local mobsFolder = workspace:FindFirstChild("Mobs")
+        if mobsFolder then
+            for _, mob in pairs(mobsFolder:GetChildren()) do
+                if mob:IsA("Model") then
+                    setHitbox(mob, true)
+                end
+            end
+        end
+
+        -- Andere mögliche Gegner-Ordner
+        local enemiesFolder = workspace:FindFirstChild("Enemies") or workspace:FindFirstChild("NPCs")
+        if enemiesFolder then
+            for _, enemy in pairs(enemiesFolder:GetChildren()) do
+                if enemy:IsA("Model") then
+                    setHitbox(enemy, true)
+                end
+            end
+        end
+
+        -- Alle Models im Workspace, die keine Spieler sind, aber Humanoid haben
+        for _, obj in pairs(workspace:GetChildren()) do
+            if obj:IsA("Model") and obj ~= player.Character then
+                local humanoid = obj:FindFirstChild("Humanoid")
+                local hrp = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChild("Torso") or obj:FindFirstChild("UpperTorso")
+                
+                if humanoid and hrp then
+                    local isPlayer = false
+                    for _, plr in pairs(Players:GetPlayers()) do
+                        if plr.Character == obj then
+                            isPlayer = true
+                            break
+                        end
+                    end
+                    
+                    if not isPlayer then
+                        setHitbox(obj, true)
+                    end
+                end
+            end
+        end
+    else
+        -- Zurücksetzen
+        for characterOrModel, _ in pairs(selectionBoxes) do
+            setHitbox(characterOrModel, false)
+        end
+    end
+end
+
+-- ScreenGui
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "EternalGUI"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = game:GetService("CoreGui")
+
+-- Main Frame
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, 650, 0, 460)
+mainFrame.Position = UDim2.new(0.5, -325, 0.5, -230)
+mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+mainFrame.BorderSizePixel = 0
+mainFrame.Active = true
+mainFrame.Draggable = false
+mainFrame.Parent = screenGui
+Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0, 10)
+
+local function smoothDrag(frame)
+    local UIS = game:GetService("UserInputService")
+    local TweenService = game:GetService("TweenService")
+
+    local dragging = false
+    local dragStart = nil
+    local startPos = nil
+
+    local function update(input)
+        local delta = input.Position - dragStart
+        local newPos = UDim2.new(
+            startPos.X.Scale,
+            startPos.X.Offset + delta.X,
+            startPos.Y.Scale,
+            startPos.Y.Offset + delta.Y
+        )
+        TweenService:Create(frame, TweenInfo.new(0.15, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Position = newPos}):Play()
+    end
+
+    frame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            dragStart = input.Position
+            startPos = frame.Position
+
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+
+    frame.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement and dragging then
+            update(input)
+        end
+    end)
+end
+
+-- Smooth Drag
+smoothDrag(mainFrame)
+
+-- Version Label
+local version
+pcall(function()
+    version = game:HttpGet("https://raw.githubusercontent.com/JJ1301/stoplooking/refs/heads/main/version")
+end)
+version = version or "N/A"
+
+local versionLabel = Instance.new("TextLabel")
+versionLabel.AnchorPoint = Vector2.new(1, 1)
+versionLabel.Position = UDim2.new(1, -10, 1, 0)
+versionLabel.Size = UDim2.new(0, 120, 0, 20)
+versionLabel.BackgroundTransparency = 1
+versionLabel.Text = "Version: " .. version
+versionLabel.TextColor3 = Color3.fromRGB(160, 130, 255)
+versionLabel.Font = Enum.Font.FredokaOne
+versionLabel.TextSize = 14
+versionLabel.TextXAlignment = Enum.TextXAlignment.Right
+versionLabel.Parent = mainFrame
+
+-- Tab Frame
+local tabFrame = Instance.new("Frame")
+tabFrame.Size = UDim2.new(0, 150, 1, -60)
+tabFrame.Position = UDim2.new(0, 0, 0, 60)
+tabFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+tabFrame.BorderSizePixel = 0
+tabFrame.Parent = mainFrame
+Instance.new("UICorner", tabFrame).CornerRadius = UDim.new(0, 8)
+
+-- Eternal Label
+local eternalLabel = Instance.new("TextLabel")
+eternalLabel.Size = UDim2.new(0, 150, 0, 25)
+eternalLabel.Position = UDim2.new(0, 0, 0, 10)
+eternalLabel.BackgroundTransparency = 1
+eternalLabel.Text = "Eternal.win"
+eternalLabel.TextColor3 = Color3.fromRGB(180, 100, 255)
+eternalLabel.Font = Enum.Font.FredokaOne
+eternalLabel.TextSize = 22
+eternalLabel.Parent = mainFrame
+
+-- Line
+local separator = Instance.new("Frame")
+separator.Size = UDim2.new(0, 150, 0, 2)
+separator.Position = UDim2.new(0, 0, 0, 40)
+separator.BackgroundColor3 = Color3.fromRGB(90, 70, 150)
+separator.BorderSizePixel = 0
+separator.Parent = mainFrame
+
+-- Tabs Table
+local tabs = {}
+local function createTab(name)
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, -150, 1, 0)
+    frame.Position = UDim2.new(0, 150, 0, 0)
+    frame.BackgroundTransparency = 1
+    frame.Visible = false
+    frame.Parent = mainFrame
+    tabs[name] = frame
+    return frame
+end
+
+-- Create Tabs
+local mainTab = createTab("Main")
+local visualsTab = createTab("Visuals")
+local settingsTab = createTab("Settings")
+
+local buttonYOffset = 10
+local function createTabButton(name, targetTab, iconPath)
+    -- Container
+    local container = Instance.new("Frame")
+    container.Size = UDim2.new(1, -20, 0, 40)
+    container.Position = UDim2.new(0, 10, 0, buttonYOffset)
+    container.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+    container.Parent = tabFrame
+    Instance.new("UICorner", container).CornerRadius = UDim.new(0, 6)
+
+    -- Icon
+    local icon = Instance.new("ImageLabel")
+    icon.Size = UDim2.new(0, 28, 0, 28)
+    icon.Position = UDim2.new(0, 6, 0.5, -14)
+    icon.BackgroundTransparency = 1
+    icon.Image = getcustomasset(iconPath)
+    icon.Parent = container
+
+    -- Label für Text
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -40, 1, 0)
+    label.Position = UDim2.new(0, 40, 0, 0)
+    label.BackgroundTransparency = 1
+    label.Font = Enum.Font.FredokaOne
+    label.TextSize = 16
+    label.TextColor3 = Color3.fromRGB(160, 130, 255)
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Text = name
+    label.Parent = container
+
+    -- Unsichtbarer Button für Klicks
+    local clickButton = Instance.new("TextButton")
+    clickButton.Size = UDim2.new(1, 0, 1, 0)
+    clickButton.BackgroundTransparency = 1
+    clickButton.Text = ""
+    clickButton.Parent = container
+
+    clickButton.MouseButton1Click:Connect(function()
+        for _, tab in pairs(tabs) do
+            tab.Visible = false
+        end
+        tabs[targetTab].Visible = true
+    end)
+
+    buttonYOffset = buttonYOffset + 45
+end
+
+createTabButton("Main", "Main", eternal .. "\\code.png")
+createTabButton("Visuals", "Visuals", eternal .. "\\eye.png")
+createTabButton("Settings", "Settings", eternal .. "\\settings.png")
+
+-- Game Name
+local gameNameLabel = Instance.new("TextLabel")
+gameNameLabel.Size = UDim2.new(0, 300, 0, 20)
+gameNameLabel.Position = UDim2.new(0, 20, 0, 110)
+gameNameLabel.BackgroundTransparency = 1
+gameNameLabel.Font = Enum.Font.FredokaOne
+gameNameLabel.TextSize = 16
+gameNameLabel.TextXAlignment = Enum.TextXAlignment.Left
+gameNameLabel.RichText = true
+gameNameLabel.Text = "Game: <font color='rgb(255,100,255)'>" ..
+    game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId).Name .. "</font>"
+gameNameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+gameNameLabel.Parent = settingsTab
+
+-- Game ID
+local gameIdLabel = Instance.new("TextLabel")
+gameIdLabel.Size = UDim2.new(0, 300, 0, 20)
+gameIdLabel.Position = UDim2.new(0, 20, 0, 135)
+gameIdLabel.BackgroundTransparency = 1
+gameIdLabel.Font = Enum.Font.FredokaOne
+gameIdLabel.TextSize = 16
+gameIdLabel.TextXAlignment = Enum.TextXAlignment.Left
+gameIdLabel.RichText = true
+gameIdLabel.Text = "Game ID: <font color='rgb(255,100,255)'>" .. game.PlaceId .. "</font>"
+gameIdLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+gameIdLabel.Parent = settingsTab
+
+-- Job ID
+local jobIdLabel = Instance.new("TextLabel")
+jobIdLabel.Size = UDim2.new(0, 300, 0, 20)
+jobIdLabel.Position = UDim2.new(0, 20, 0, 170)
+jobIdLabel.BackgroundTransparency = 1
+jobIdLabel.Font = Enum.Font.FredokaOne
+jobIdLabel.TextSize = 16
+jobIdLabel.TextXAlignment = Enum.TextXAlignment.Left
+jobIdLabel.RichText = true
+jobIdLabel.Text = "Job ID: <font color='rgb(255,100,255)'>" .. game.JobId .. "</font>"
+jobIdLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+jobIdLabel.Parent = settingsTab
+
+-- Copy Job ID Button
+local copyJobIdButton = Instance.new("TextButton")
+copyJobIdButton.Size = UDim2.new(0, 150, 0, 30)
+copyJobIdButton.Position = UDim2.new(0, 20, 0, 200)
+copyJobIdButton.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+copyJobIdButton.Font = Enum.Font.FredokaOne
+copyJobIdButton.TextSize = 16
+copyJobIdButton.TextColor3 = Color3.fromRGB(255, 100, 255)
+copyJobIdButton.Text = "Copy Job ID"
+copyJobIdButton.Parent = settingsTab
+Instance.new("UICorner", copyJobIdButton).CornerRadius = UDim.new(0, 6)
+
+copyJobIdButton.MouseButton1Click:Connect(function()
+    setclipboard(game.JobId)
+end)
+
+-- Bring All Toggle
+local bringAllToggle = Instance.new("TextButton")
+bringAllToggle.Size = UDim2.new(0, 150, 0, 40)
+bringAllToggle.Position = UDim2.new(0, 20, 0, 20)
+bringAllToggle.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+bringAllToggle.Text = "Bring All: OFF"
+bringAllToggle.Font = Enum.Font.FredokaOne
+bringAllToggle.TextColor3 = Color3.fromRGB(255, 100, 255)
+bringAllToggle.TextSize = 16
+bringAllToggle.Parent = mainTab
+Instance.new("UICorner", bringAllToggle).CornerRadius = UDim.new(0, 6)
+
+local bringAllEnabled = false
+local bringAllConnection = nil
+
+local function notifyNoPlayers()
+    local hint = Instance.new("TextLabel")
+    hint.Size = UDim2.new(0, 300, 0, 30)
+    hint.Position = UDim2.new(0.5, -150, 0, 10)
+    hint.BackgroundColor3 = Color3.fromRGB(60, 20, 20)
+    hint.Text = "No real players found!"
+    hint.TextColor3 = Color3.fromRGB(255, 255, 255)
+    hint.Font = Enum.Font.FredokaOne
+    hint.TextSize = 14
+    hint.Parent = screenGui
+    Instance.new("UICorner", hint).CornerRadius = UDim.new(0, 6)
+
+    task.delay(3, function()
+        if hint then hint:Destroy() end
+    end)
+end
+
+bringAllToggle.MouseButton1Click:Connect(function()
+    bringAllEnabled = not bringAllEnabled
+    bringAllToggle.Text = "Bring All: " .. (bringAllEnabled and "ON" or "OFF")
+
+    if bringAllEnabled then
+        local camera = workspace.CurrentCamera
+        local bots = workspace:FindFirstChild("Mobs")
+
+        if not bots then
+            notifyNoPlayers()
+            bringAllToggle.Text = "Bring All: OFF"
+            bringAllEnabled = false
+            return
+        end
+
+        bringAllConnection = RunService.RenderStepped:Connect(function()
+            local localPlayer = Players.LocalPlayer
+            local character = localPlayer.Character
+
+            -- Mobs
+            for _, v in bots:GetChildren() do
+                if character and character:GetAttribute("Team") ~= -1 and v:GetAttribute("Team") == character:GetAttribute("Team") then
+                    continue
+                end
+                local head = v:FindFirstChild("Head")
+                if head then
+                    head.CFrame = camera.CFrame + camera.CFrame.lookVector * 7
+                end
+            end
+
+            -- Players
+            for _, v in Players:GetPlayers() do
+                if v == localPlayer then continue end
+                if character and v.Character and character:GetAttribute("Team") ~= -1 and v.Character:GetAttribute("Team") == character:GetAttribute("Team") then
+                    continue
+                end
+                local head = v.Character and v.Character:FindFirstChild("Head")
+                if head then
+                    head.CFrame = camera.CFrame + camera.CFrame.lookVector * 7
+                end
+            end
+        end)
+    else
+        if bringAllConnection then
+            bringAllConnection:Disconnect()
+            bringAllConnection = nil
+        end
+    end
+end)
+
+-- Hitbox Expander Toggle
+local hitboxToggle = Instance.new("TextButton")
+hitboxToggle.Size = UDim2.new(0, 150, 0, 40)
+hitboxToggle.Position = UDim2.new(0, 180, 0, 20)
+hitboxToggle.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+hitboxToggle.Text = "Hitbox: OFF"
+hitboxToggle.Font = Enum.Font.FredokaOne
+hitboxToggle.TextColor3 = Color3.fromRGB(255, 100, 255)
+hitboxToggle.TextSize = 16
+hitboxToggle.Parent = mainTab
+Instance.new("UICorner", hitboxToggle).CornerRadius = UDim.new(0, 6)
+
+hitboxToggle.MouseButton1Click:Connect(function()
+    toggleHitboxExpander = not toggleHitboxExpander
+    hitboxToggle.Text = "Hitbox: " .. (toggleHitboxExpander and "ON" or "OFF")
+    updateHitboxes()
+end)
+
+-- Reset Button
+local resetButton = Instance.new("TextButton")
+resetButton.Size = UDim2.new(0, 150, 0, 40)
+resetButton.Position = UDim2.new(0, 340, 0, 20)
+resetButton.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+resetButton.Text = "Reset"
+resetButton.Font = Enum.Font.FredokaOne
+resetButton.TextColor3 = Color3.fromRGB(255, 100, 255)
+resetButton.TextSize = 16
+resetButton.Parent = mainTab
+Instance.new("UICorner", resetButton).CornerRadius = UDim.new(0, 6)
+
+resetButton.MouseButton1Click:Connect(function()
+	local char = player.Character
+	if char then
+		local humanoid = char:FindFirstChildOfClass("Humanoid")
+		if humanoid then
+			humanoid.Health = 0
+		end
+	end
+end)
+
+-- Companion Toggle
+local companionToggle = Instance.new("TextButton")
+companionToggle.Size = UDim2.new(0, 150, 0, 40)
+companionToggle.Position = UDim2.new(0, 20, 0, 20)
+companionToggle.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+companionToggle.Text = "Companion: OFF"
+companionToggle.Font = Enum.Font.FredokaOne
+companionToggle.TextColor3 = Color3.fromRGB(255, 100, 255)
+companionToggle.TextSize = 16
+companionToggle.Parent = visualsTab
+Instance.new("UICorner", companionToggle).CornerRadius = UDim.new(0, 6)
+
+local companionEnabled = false
+local companionImage = Instance.new("ImageLabel")
+companionImage.Size = UDim2.new(0, 240, 0, 280)
+companionImage.Position = UDim2.new(1, -500, 1, -280)
+companionImage.BackgroundTransparency = 1
+companionImage.Image = "rbxassetid://90829454950031"
+companionImage.Visible = false
+companionImage.Parent = screenGui
+
+companionToggle.MouseButton1Click:Connect(function()
+    companionEnabled = not companionEnabled
+    companionImage.Visible = companionEnabled
+    companionToggle.Text = "Companion: " .. (companionEnabled and "ON" or "OFF")
+end)
+
+-- Unload Button
+local unloadButton = Instance.new("TextButton")
+unloadButton.Size = UDim2.new(0, 140, 0, 30)
+unloadButton.Position = UDim2.new(0, 20, 0, 20)
+unloadButton.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+unloadButton.Text = "Unload"
+unloadButton.Font = Enum.Font.FredokaOne
+unloadButton.TextColor3 = Color3.fromRGB(255, 100, 255)
+unloadButton.TextSize = 16
+unloadButton.Parent = settingsTab
+Instance.new("UICorner", unloadButton).CornerRadius = UDim.new(0, 6)
+
+unloadButton.MouseButton1Click:Connect(function()
+    screenGui:Destroy()
+end)
+
+-- Rejoin Button
+local rejoinButton = Instance.new("TextButton")
+rejoinButton.Size = UDim2.new(0, 140, 0, 30)
+rejoinButton.Position = UDim2.new(0, 180, 0, 20)
+rejoinButton.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+rejoinButton.Text = "Rejoin"
+rejoinButton.Font = Enum.Font.FredokaOne
+rejoinButton.TextColor3 = Color3.fromRGB(255, 100, 255)
+rejoinButton.TextSize = 16
+rejoinButton.Parent = settingsTab
+Instance.new("UICorner", rejoinButton).CornerRadius = UDim.new(0, 6)
+
+rejoinButton.MouseButton1Click:Connect(function()
+    local placeId = game.PlaceId
+    local jobId = game.JobId
+    TeleportService:TeleportToPlaceInstance(placeId, jobId, player)
+end)
+
+-- GUI Hotkey
+local hotkeyLabel = Instance.new("TextLabel")
+hotkeyLabel.Size = UDim2.new(0, 100, 0, 25)
+hotkeyLabel.Position = UDim2.new(0, 20, 0, 70)
+hotkeyLabel.BackgroundTransparency = 1
+hotkeyLabel.Text = "GUI Hotkey:"
+hotkeyLabel.Font = Enum.Font.FredokaOne
+hotkeyLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+hotkeyLabel.TextSize = 16
+hotkeyLabel.TextXAlignment = Enum.TextXAlignment.Left
+hotkeyLabel.Parent = settingsTab
+
+local hotkeyBox = Instance.new("TextButton")
+hotkeyBox.Size = UDim2.new(0, 60, 0, 25)
+hotkeyBox.Position = UDim2.new(0, 130, 0, 70)
+hotkeyBox.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
+hotkeyBox.Text = "None"
+hotkeyBox.Font = Enum.Font.FredokaOne
+hotkeyBox.TextColor3 = Color3.fromRGB(255, 100, 255)
+hotkeyBox.TextSize = 14
+hotkeyBox.Parent = settingsTab
+Instance.new("UICorner", hotkeyBox).CornerRadius = UDim.new(0, 5)
+
+local currentHotkey = nil
+local waitingForKey = false
+
+hotkeyBox.MouseButton1Click:Connect(function()
+    if waitingForKey then return end
+    hotkeyBox.Text = "..."
+    waitingForKey = true
+end)
+
+UIS.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if waitingForKey then
+        waitingForKey = false
+        if input.KeyCode == Enum.KeyCode.Unknown then
+            hotkeyBox.Text = "Invalid"
+        else
+            currentHotkey = input.KeyCode
+            hotkeyBox.Text = input.KeyCode.Name
+        end
+    elseif currentHotkey and input.KeyCode == currentHotkey then
+        mainFrame.Visible = not mainFrame.Visible
+    end
+end)
+
+tabs["Main"].Visible = true
