@@ -49,6 +49,9 @@ local toggleHitboxExpander = false
 local selectionBoxes = {}
 local originalSizes = {}
 
+local boxESPEnabled = false
+local espBoxes = {} 
+
 local function setHitbox(characterOrModel, enabled)
     local hrp = characterOrModel:FindFirstChild("HumanoidRootPart") or 
                characterOrModel:FindFirstChild("Torso") or 
@@ -252,6 +255,133 @@ workspace.ChildRemoved:Connect(function(child)
     if selectionBoxes[child] then
         selectionBoxes[child] = nil
         originalSizes[child] = nil
+    end
+end)
+
+-- Create a Drawing Square for ESP
+local function createESPBox()
+    local box = Drawing.new("Square")
+    box.Visible = false
+    box.Color = Color3.new(1, 0, 0)
+    box.Thickness = 2
+    box.Transparency = 1
+    box.Filled = false
+    return box
+end
+
+-- Update the ESP box position and size
+local function updateESP(target, box)
+    if not target or not target.Parent or not isEnemy(target) then
+        box.Visible = false
+        return
+    end
+
+    local hrp = target:FindFirstChild("HumanoidRootPart")
+    if not hrp then
+        box.Visible = false
+        return
+    end
+
+    local cam = workspace.CurrentCamera
+    local pos, onScreen = cam:WorldToViewportPoint(hrp.Position)
+    if not onScreen then
+        box.Visible = false
+        return
+    end
+
+    local dist = (cam.CFrame.Position - hrp.Position).Magnitude
+    local scaleFactor = 1000 / dist
+    local boxWidth = math.max(scaleFactor * 4, 20)
+    local boxHeight = boxWidth * 1.5
+
+    box.Size = Vector2.new(boxWidth, boxHeight)
+    box.Position = Vector2.new(pos.X - boxWidth / 2, pos.Y - boxHeight / 2)
+    box.Color = Color3.new(1, 0, 0)
+    box.Visible = true
+end
+
+-- Add/remove targets to the ESP table
+local function addESP(target)
+    if espBoxes[target] then return end
+    espBoxes[target] = createESPBox()
+end
+
+local function removeESP(target)
+    if espBoxes[target] then
+        espBoxes[target]:Remove()
+        espBoxes[target] = nil
+    end
+end
+
+-- Main update loop
+RunService.Heartbeat:Connect(function()
+    if not boxESPEnabled then
+        for _, box in pairs(espBoxes) do
+            box.Visible = false
+        end
+        return
+    end
+
+    for target, box in pairs(espBoxes) do
+        updateESP(target, box)
+    end
+end)
+
+-- Detect new players spawning
+Players.PlayerAdded:Connect(function(plr)
+    plr.CharacterAdded:Connect(function(char)
+        char:WaitForChild("HumanoidRootPart", 5)
+        if boxESPEnabled and isEnemy(char) then
+            addESP(char)
+        end
+    end)
+end)
+
+-- Detect respawn for existing players
+for _, plr in pairs(Players:GetPlayers()) do
+    if plr ~= player then
+        plr.CharacterAdded:Connect(function(char)
+            char:WaitForChild("HumanoidRootPart", 5)
+            if boxESPEnabled and isEnemy(char) then
+                addESP(char)
+            end
+        end)
+    end
+end
+
+-- Detect new mobs spawning
+local function setupMobListenerBoxESP()
+    local mobsFolder = workspace:FindFirstChild("Mobs")
+    if mobsFolder then
+        mobsFolder.ChildAdded:Connect(function(mob)
+            mob:WaitForChild("HumanoidRootPart", 5)
+            if boxESPEnabled and mob:IsA("Model") and mob:FindFirstChild("Humanoid") and isEnemy(mob) then
+                addESP(mob)
+            end
+        end)
+    end
+end
+
+-- Run on load
+setupMobListenerBoxESP()
+
+-- If "Mobs" folder appears later
+workspace.ChildAdded:Connect(function(child)
+    if child.Name == "Mobs" then
+        setupMobListenerBoxESP()
+    end
+end)
+
+-- Cleanup when target is removed
+Players.PlayerRemoving:Connect(function(plr)
+    if plr.Character then
+        removeESP(plr.Character)
+    end
+end)
+
+workspace.DescendantRemoving:Connect(function(obj)
+    if espBoxes[obj] then
+        removeESP(obj)
     end
 end)
 
@@ -778,10 +908,26 @@ resetButton.MouseButton1Click:Connect(function()
     end
 end)
 
+local boxESPToggle = Instance.new("TextButton")
+boxESPToggle.Size = UDim2.new(0, 150, 0, 40)
+boxESPToggle.Position = UDim2.new(0, 20, 0, 20)
+boxESPToggle.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+boxESPToggle.Text = "Box ESP: OFF"
+boxESPToggle.Font = Enum.Font.FredokaOne
+boxESPToggle.TextColor3 = Color3.fromRGB(255, 100, 255)
+boxESPToggle.TextSize = 16
+boxESPToggle.Parent = visualsTab
+Instance.new("UICorner", boxESPToggle).CornerRadius = UDim.new(0, 6)
+
+boxESPToggle.MouseButton1Click:Connect(function()
+    boxESPEnabled = not boxESPEnabled
+    boxESPToggle.Text = "Box ESP: " .. (boxESPEnabled and "ON" or "OFF")
+end)
+
 -- Companion Toggle
 local companionToggle = Instance.new("TextButton")
 companionToggle.Size = UDim2.new(0, 150, 0, 40)
-companionToggle.Position = UDim2.new(0, 20, 0, 20)
+companionToggle.Position = UDim2.new(0, 190, 0, 20)
 companionToggle.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
 companionToggle.Text = "Companion: OFF"
 companionToggle.Font = Enum.Font.FredokaOne
